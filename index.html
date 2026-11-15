@@ -1,27 +1,63 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Consulta de autenticidade | Rifa</title><style>
-:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#202735;background:#f3f5f9}*{box-sizing:border-box}main{max-width:460px;margin:7vh auto;padding:24px;background:white;border-radius:18px;box-shadow:0 4px 20px #1112}h1{font-size:24px;margin:0 0 8px}p{line-height:1.55}.pill{display:inline-block;border-radius:30px;background:#dcfce7;color:#166534;padding:8px 13px;font-weight:700}.error{background:#fee2e2;color:#991b1b}.numbers{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.numbers b{border:1px solid #dbe1eb;padding:15px;text-align:center;border-radius:10px;font-size:25px;letter-spacing:2px}.muted{color:#596579;font-size:14px}.note{border-top:1px solid #e6eaf0;padding-top:14px;margin-top:20px}</style></head>
-<body><main><h1>Consulta de autenticidade</h1><p id="status">Consultando registro…</p><div id="result"></div><p class="muted note">Compare os quatro números desta página com os quatro números impressos no bilhete. A confirmação do código não impede a existência de cópias físicas ou digitais do mesmo bilhete.</p></main>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#202735;background:#f3f5f9}*{box-sizing:border-box}main{max-width:460px;margin:7vh auto;padding:24px;background:white;border-radius:18px;box-shadow:0 4px 20px #1112}h1{font-size:24px;margin:0 0 8px}p{line-height:1.55}.pill{display:inline-block;border-radius:30px;background:#dcfce7;color:#166534;padding:8px 13px;font-weight:700}.error{background:#fee2e2;color:#991b1b}.numbers{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.numbers b{border:1px solid #dbe1eb;padding:15px;text-align:center;border-radius:10px;font-size:25px;letter-spacing:2px}.muted{color:#596579;font-size:14px}.note{border-top:1px solid #e6eaf0;padding-top:14px;margin-top:20px}
+.gate{margin:20px 0 0}.gate label{display:block;font-weight:600;margin:0 0 8px}.gate input{width:100%;border:1px solid #aab5c6;border-radius:10px;padding:14px;font:inherit}.gate button{border:0;border-radius:10px;background:#202735;color:#fff;padding:13px 20px;margin-top:12px;width:100%;font-weight:700;font-size:16px;cursor:pointer}.gate button:disabled{opacity:.5}.gate .feedback{color:#991b1b;font-size:14px;margin-top:8px}.hide{display:none}
+</style></head>
+<body><main><h1>Consulta de autenticidade</h1><p id="status">Área restrita aos organizadores.</p>
+<form id="gate" class="gate"><label for="pw">Senha de acesso</label><input id="pw" type="password" autocomplete="current-password" required placeholder="Digite a senha"><button type="submit" id="enter">Entrar e consultar</button><p id="feedback" class="feedback" role="alert"></p></form><div id="result"></div><p class="muted note">Compare os quatro números desta página com os quatro números impressos no bilhete. A confirmação do código não impede a existência de cópias físicas ou digitais do mesmo bilhete.</p></main>
 <script>
 (async()=>{
-  const p=new URLSearchParams(location.search);
-  const hash=(location.hash||'').replace(/^#/,'').trim();
-  const key=(hash||p.get('k')||p.get('c')||'').trim();
-  const s=document.getElementById('status'),e=document.getElementById('result');
-  if(!key){s.textContent='Escaneie o QR Code impresso no bilhete para realizar a consulta.';return;}
-  try{
-    const response=await fetch('./registro.json',{cache:'no-store'});
-    if(!response.ok)throw Error();
-    const db=await response.json();
-    const v=Object.prototype.hasOwnProperty.call(db,key)?db[key]:null;
-    if(!v){s.innerHTML='<span class="pill error">Código não encontrado</span>'; e.innerHTML='<p>Este QR Code não corresponde a um registro da lista publicada. Não aceite o bilhete sem verificação da organização.</p>'; return;}
-    s.innerHTML='<span class="pill">Bilhete autêntico</span>';
-    const h=document.createElement('h2'); h.textContent='Bilhete nº '+v.bilhete; e.appendChild(h);
-    const label=document.createElement('p'); label.textContent='Números participantes:'; e.appendChild(label);
-    const n=document.createElement('div'); n.className='numbers';
-    for(const number of v.numeros){const b=document.createElement('b'); b.textContent=number; n.appendChild(b)}
-    e.appendChild(n);
-    const orig=document.createElement('p'); orig.className='muted'; orig.textContent='Referência interna: '+v.origem; e.appendChild(orig);
-  }catch(err){s.innerHTML='<span class="pill error">Consulta indisponível</span>'; e.textContent='Não foi possível acessar o cadastro. Confira a conexão e tente novamente.';}
+  // Observação: esta é apenas uma barreira de interface, não protege os dados públicos do GitHub.
+  const EXPECTED_SHA256='5e716a9d585fc9c114facac014f40545e86a4365d9db30aef3dffd94e02c154e';
+  const STORAGE_KEY='rifa_access_until_v1';
+  const SESSION_HOURS=12;
+  const gate=document.getElementById('gate'), pw=document.getElementById('pw');
+  const status=document.getElementById('status'), feedback=document.getElementById('feedback');
+  async function digest(value){
+    const bytes=new TextEncoder().encode(value);
+    const hash=await crypto.subtle.digest('SHA-256',bytes);
+    return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  function currentKey(){
+    const q=new URLSearchParams(location.search);
+    const h=(location.hash||'').slice(1).trim();
+    return h||q.get('k')||q.get('c')||'';
+  }
+  async function consult(){
+    gate.classList.add('hide');
+    document.getElementById('result').replaceChildren();
+    const key=currentKey();
+    if(!key){status.textContent='Acesso liberado. Escaneie um QR Code para consultar um bilhete.';return;}
+    status.textContent='Consultando bilhete…';
+    try{
+      const response=await fetch('./registro.json',{cache:'no-store'});
+      if(!response.ok)throw Error('Falha na leitura');
+      const db=await response.json();
+      const v=Object.prototype.hasOwnProperty.call(db,key)?db[key]:null;
+      const result=document.getElementById('result');
+      if(!v){status.innerHTML='<span class="pill error">Código não encontrado</span>';result.innerHTML='<p>Este QR Code não consta na lista publicada. Não aceite sem verificação dos organizadores.</p>';return;}
+      status.innerHTML='<span class="pill">Código cadastrado</span>';
+      const h=document.createElement('h2');h.textContent='Bilhete nº '+v.bilhete;result.appendChild(h);
+      const label=document.createElement('p');label.textContent='Números participantes:';result.appendChild(label);
+      const nums=document.createElement('div');nums.className='numbers';
+      for(const value of v.numeros){const b=document.createElement('b');b.textContent=value;nums.appendChild(b)}
+      result.appendChild(nums);
+      const orig=document.createElement('p');orig.className='muted';orig.textContent='Referência interna: '+v.origem;result.appendChild(orig);
+    }catch(error){status.innerHTML='<span class="pill error">Consulta indisponível</span>';document.getElementById('result').textContent='Não foi possível acessar o cadastro. Confira a conexão e tente novamente.'}
+  }
+  gate.addEventListener('submit',async e=>{
+    e.preventDefault();feedback.textContent='';
+    const btn=document.getElementById('enter');btn.disabled=true;
+    try{
+      const d=await digest(pw.value);
+      if(d!==EXPECTED_SHA256){feedback.textContent='Senha incorreta. Tente novamente.';pw.value='';pw.focus();return;}
+      localStorage.setItem(STORAGE_KEY, String(Date.now()+SESSION_HOURS*60*60*1000));
+      await consult();
+    }catch(err){feedback.textContent='Não foi possível verificar a senha neste navegador.'}
+    finally{btn.disabled=false}
+  });
+  const expiry=Number(localStorage.getItem(STORAGE_KEY)||'0');
+  if(expiry>Date.now()){await consult();}
+  else{localStorage.removeItem(STORAGE_KEY);status.textContent='Digite a senha dos organizadores para consultar o bilhete.';}
 })();
 </script></body></html>
